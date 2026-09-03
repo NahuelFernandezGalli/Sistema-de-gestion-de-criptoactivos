@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "Crypto Portfolio API",
+    "description": "Colección para probar el CRUD de activos y la integración de precios externos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "assetId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Listar todos los activos",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/assets"
+      }
+    },
+    {
+      "name": "Crear un activo",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.id) { pm.collectionVariables.set('assetId', json.id); }"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/api/assets",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"symbol\": \"BTC\",\n  \"name\": \"Bitcoin\",\n  \"amount\": 0.25,\n  \"purchasePrice\": 40000\n}"
+        }
+      }
+    },
+    {
+      "name": "Obtener un activo por id",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/assets/{{assetId}}"
+      }
+    },
+    {
+      "name": "Actualizar un activo",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/api/assets/{{assetId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 0.5\n}"
+        }
+      }
+    },
+    {
+      "name": "Obtener precio actual (servicio externo)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/assets/{{assetId}}/price"
+      }
+    },
+    {
+      "name": "Eliminar un activo",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/assets/{{assetId}}"
+      }
+    }
+  ]
+}
