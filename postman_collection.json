@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Crypto Portfolio API",
-    "description": "Colección para probar el CRUD de activos y la integración de precios externos.",
+    "name": "Crypto Portfolio API v2",
+    "description": "Colección completa para probar la API de gestión de criptoactivos.\n\nOrden sugerido: correr las carpetas de arriba hacia abajo. La request 'Crear activo' guarda automáticamente el id generado en la variable de colección `assetId`, que usan el resto de las requests.\n\nVariables:\n- baseUrl: http://localhost:3000\n- assetId: se completa solo al crear un activo",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,74 +10,339 @@
   ],
   "item": [
     {
-      "name": "Health check",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/health"
-      }
-    },
-    {
-      "name": "Listar todos los activos",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/assets"
-      }
-    },
-    {
-      "name": "Crear un activo",
-      "event": [
+      "name": "0. Health",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "const json = pm.response.json();",
-              "if (json.id) { pm.collectionVariables.set('assetId', json.id); }"
-            ]
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('estado ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "1. CRUD de activos",
+      "item": [
+        {
+          "name": "Listar todos los activos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('devuelve un array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets" }
+        },
+        {
+          "name": "Crear activo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('devuelve un UUID', () => pm.expect(body.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i));",
+                  "pm.test('normaliza el símbolo a mayúsculas', () => pm.expect(body.symbol).to.eql('SOL'));",
+                  "pm.collectionVariables.set('assetId', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"sol\",\n  \"name\": \"Solana\",\n  \"amount\": 10,\n  \"purchasePrice\": 90\n}"
+            }
+          }
+        },
+        {
+          "name": "Obtener activo por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}" }
+        },
+        {
+          "name": "Actualizar activo (parcial)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "pm.test('aplica el cambio', () => pm.expect(pm.response.json().amount).to.eql(15));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets/{{assetId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 15\n}" }
           }
         }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{baseUrl}}/api/assets",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"symbol\": \"BTC\",\n  \"name\": \"Bitcoin\",\n  \"amount\": 0.25,\n  \"purchasePrice\": 40000\n}"
+      ]
+    },
+    {
+      "name": "2. Validación con Zod (errores esperados)",
+      "item": [
+        {
+          "name": "POST con payload inválido -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('código de error correcto', () => pm.expect(body.error.code).to.eql('VALIDATION_ERROR'));",
+                  "pm.test('detalla los campos con problema', () => pm.expect(body.error.details).to.be.an('array').that.is.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"\",\n  \"name\": \"Sin datos\",\n  \"amount\": -5,\n  \"purchasePrice\": \"caro\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST con campo desconocido -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"DOT\",\n  \"name\": \"Polkadot\",\n  \"amount\": 5,\n  \"purchasePrice\": 6,\n  \"campoNoPermitido\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "PUT con body vacío -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets/{{assetId}}",
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "GET con id que no es UUID -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/no-es-un-uuid" }
+        },
+        {
+          "name": "GET con UUID inexistente -> 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 404', () => pm.response.to.have.status(404));",
+                  "pm.test('código NOT_FOUND', () => pm.expect(pm.response.json().error.code).to.eql('NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/assets/3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+          }
+        },
+        {
+          "name": "POST con símbolo duplicado -> 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 409', () => pm.response.to.have.status(409));",
+                  "pm.test('código CONFLICT', () => pm.expect(pm.response.json().error.code).to.eql('CONFLICT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"SOL\",\n  \"name\": \"Solana duplicada\",\n  \"amount\": 1,\n  \"purchasePrice\": 90\n}"
+            }
+          }
         }
-      }
+      ]
     },
     {
-      "name": "Obtener un activo por id",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/assets/{{assetId}}"
-      }
-    },
-    {
-      "name": "Actualizar un activo",
-      "request": {
-        "method": "PUT",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{baseUrl}}/api/assets/{{assetId}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"amount\": 0.5\n}"
+      "name": "3. Mercado (API externa + rate limiting)",
+      "item": [
+        {
+          "name": "Valuación de mercado - GET /api/market/:id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200 (o 429 si se excedió el límite)', () => pm.expect([200, 429]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('trae precio actual', () => pm.expect(body.currentPrice).to.be.a('number'));",
+                  "  pm.test('calcula ganancia/pérdida', () => pm.expect(body.profitLoss).to.be.a('number'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/market/{{assetId}}" }
+        },
+        {
+          "name": "Alias - GET /api/assets/:id/price",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}/price" }
+        },
+        {
+          "name": "Rate limit: correr 6+ veces seguidas -> 429",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Ejecutar esta request 6 veces seguidas (o usar el Collection Runner",
+                  "// con 6 iteraciones): a partir de la sexta dentro del mismo minuto",
+                  "// debe responder 429.",
+                  "pm.test('responde 200 o 429', () => pm.expect([200, 429]).to.include(pm.response.code));",
+                  "if (pm.response.code === 429) {",
+                  "  pm.test('código RATE_LIMIT_EXCEEDED', () => pm.expect(pm.response.json().error.code).to.eql('RATE_LIMIT_EXCEEDED'));",
+                  "  pm.test('expone headers RateLimit', () => pm.expect(pm.response.headers.has('RateLimit')).to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/market/{{assetId}}" }
         }
-      }
+      ]
     },
     {
-      "name": "Obtener precio actual (servicio externo)",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/assets/{{assetId}}/price"
-      }
+      "name": "4. Auditoría",
+      "item": [
+        {
+          "name": "Historial del activo - GET /api/assets/:id/history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('devuelve eventos de auditoría', () => pm.expect(body).to.be.an('array').that.is.not.empty);",
+                  "pm.test('el primer evento es CREATE', () => pm.expect(body[0].action).to.eql('CREATE'));",
+                  "pm.test('cada evento tiene timestamp', () => body.forEach(e => pm.expect(e.timestamp).to.be.a('string')));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}/history" }
+        }
+      ]
     },
     {
-      "name": "Eliminar un activo",
-      "request": {
-        "method": "DELETE",
-        "url": "{{baseUrl}}/api/assets/{{assetId}}"
-      }
+      "name": "5. Baja y trazabilidad post-borrado",
+      "item": [
+        {
+          "name": "Eliminar activo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 204', () => pm.response.to.have.status(204));"]
+              }
+            }
+          ],
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/assets/{{assetId}}" }
+        },
+        {
+          "name": "El activo ya no existe -> 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('responde 404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}" }
+        },
+        {
+          "name": "Pero su historial sobrevive -> 200 con DELETE incluido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const acciones = pm.response.json().map(e => e.action);",
+                  "pm.test('el historial incluye el DELETE', () => pm.expect(acciones).to.include('DELETE'));"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}/history" }
+        }
+      ]
     }
   ]
 }

@@ -1,6 +1,10 @@
 node_modules
 dist
+coverage
+logs
+tests
 npm-debug.log
 .git
 .gitignore
+.env
 *.md
