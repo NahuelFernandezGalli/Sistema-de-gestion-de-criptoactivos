@@ -13,14 +13,13 @@ import { AssetIdParam, UpdateAssetDTO } from '../schemas/asset.schema';
 export class AssetController {
   constructor(private readonly assetService: AssetService) {}
 
-  getAll = (_req: Request, res: Response): void => {
-    const assets = this.assetService.getAll();
-    res.status(200).json(assets);
+  getAll = async (_req: Request, res: Response): Promise<void> => {
+    res.status(200).json(await this.assetService.getAll());
   };
 
-  getById = (_req: Request, res: Response): void => {
+  getById = async (_req: Request, res: Response): Promise<void> => {
     const { id } = validatedParams<AssetIdParam>(res);
-    res.status(200).json(this.assetService.getById(id));
+    res.status(200).json(await this.assetService.getById(id));
   };
 
   /** El body se pasa crudo: lo valida y transforma el pipeline de ingesta. */
@@ -29,20 +28,20 @@ export class AssetController {
     res.status(201).json(created);
   };
 
-  update = (_req: Request, res: Response): void => {
+  update = async (_req: Request, res: Response): Promise<void> => {
     const { id } = validatedParams<AssetIdParam>(res);
     const changes = validatedBody<UpdateAssetDTO>(res);
-    res.status(200).json(this.assetService.update(id, changes));
+    res.status(200).json(await this.assetService.update(id, changes));
   };
 
-  remove = (_req: Request, res: Response): void => {
+  remove = async (_req: Request, res: Response): Promise<void> => {
     const { id } = validatedParams<AssetIdParam>(res);
-    this.assetService.delete(id);
+    await this.assetService.delete(id);
     res.status(204).send();
   };
 
-  getHistory = (_req: Request, res: Response): void => {
+  getHistory = async (_req: Request, res: Response): Promise<void> => {
     const { id } = validatedParams<AssetIdParam>(res);
-    res.status(200).json(this.assetService.getHistory(id));
+    res.status(200).json(await this.assetService.getHistory(id));
   };
 }

@@ -19,6 +19,11 @@ import { logger } from '../utils/logger';
  * modificación o baja pasa por acá, así que ninguna operación puede quedar sin
  * registrar (si la auditoría viviera en el controller, bastaría con llamar al
  * repositorio desde otro lado para saltearla).
+ *
+ * Desde la Parte 4 los activos viven en MySQL y la auditoría en MongoDB. Cada
+ * escritura corre dentro de una transacción de activos que incluye el append
+ * de auditoría: si MongoDB falla, el cambio en MySQL se deshace, así que no
+ * puede quedar un movimiento sin su registro histórico.
  */
 export class AssetService {
   constructor(
@@ -27,16 +32,12 @@ export class AssetService {
     private readonly ingestionPipeline: IngestionPipeline
   ) {}
 
-  getAll(): Asset[] {
+  async getAll(): Promise<Asset[]> {
     return this.assetRepository.findAll();
   }
 
-  getById(id: string): Asset {
-    const asset = this.assetRepository.findById(id);
-    if (!asset) {
-      throw new NotFoundError(`No existe un activo con id "${id}".`);
-    }
-    return asset;
+  async getById(id: string): Promise<Asset> {
+    return this.findExisting(this.assetRepository, id);
   }
 
   /**
@@ -46,84 +47,94 @@ export class AssetService {
    * dar de alta un activo salteándolo.
    */
   async create(input: unknown): Promise<Asset> {
+    // El pipeline puede consultar una API externa: corre ANTES de abrir la
+    // transacción para no tener la conexión a MySQL tomada mientras tanto.
     const data = await this.ingestionPipeline.run(input);
 
     // Las reglas de negocio se siguen verificando acá aunque Zod ya las haya
     // chequeado: el service no confía en que lo llamen con datos validados.
     this.assertPositiveAmounts(data.amount, data.purchasePrice);
 
-    const duplicated = this.assetRepository.findBySymbol(data.symbol);
-    if (duplicated) {
-      throw new ConflictError(
-        `El portafolio ya tiene una posición en "${data.symbol}". Actualizá la existente (id ${duplicated.id}) en lugar de duplicarla.`
-      );
-    }
+    const created = await this.assetRepository.transaction(async (assets) => {
+      const duplicated = await assets.findBySymbol(data.symbol);
+      if (duplicated) {
+        throw new ConflictError(
+          `El portafolio ya tiene una posición en "${data.symbol}". Actualizá la existente (id ${duplicated.id}) en lugar de duplicarla.`
+        );
+      }
 
-    const now = new Date().toISOString();
-    const asset: Asset = {
-      id: randomUUID(),
-      symbol: data.symbol,
-      name: data.name,
-      amount: data.amount,
-      purchasePrice: data.purchasePrice,
-      createdAt: now,
-      updatedAt: now,
-    };
+      const now = new Date().toISOString();
+      const asset = await assets.create({
+        id: randomUUID(),
+        symbol: data.symbol,
+        name: data.name,
+        amount: data.amount,
+        purchasePrice: data.purchasePrice,
+        createdAt: now,
+        updatedAt: now,
+      });
 
-    const created = this.assetRepository.create(asset);
-    this.recordAudit(created.id, AuditAction.CREATE, created);
+      await this.recordAudit(asset.id, AuditAction.CREATE, asset);
+      return asset;
+    });
+
     logger.info('Activo creado', { assetId: created.id, symbol: created.symbol });
-
     return created;
   }
 
-  update(id: string, changes: UpdateAssetDTO): Asset {
-    const current = this.getById(id);
+  async update(id: string, changes: UpdateAssetDTO): Promise<Asset> {
+    const updated = await this.assetRepository.transaction(async (assets) => {
+      const current = await this.findExisting(assets, id);
 
-    this.assertPositiveAmounts(
-      changes.amount ?? current.amount,
-      changes.purchasePrice ?? current.purchasePrice
-    );
+      this.assertPositiveAmounts(
+        changes.amount ?? current.amount,
+        changes.purchasePrice ?? current.purchasePrice
+      );
 
-    if (changes.symbol && changes.symbol !== current.symbol) {
-      const duplicated = this.assetRepository.findBySymbol(changes.symbol);
-      if (duplicated && duplicated.id !== id) {
-        throw new ConflictError(
-          `El portafolio ya tiene una posición en "${changes.symbol}".`
-        );
+      if (changes.symbol && changes.symbol !== current.symbol) {
+        const duplicated = await assets.findBySymbol(changes.symbol);
+        if (duplicated && duplicated.id !== id) {
+          throw new ConflictError(
+            `El portafolio ya tiene una posición en "${changes.symbol}".`
+          );
+        }
       }
-    }
 
-    const updated = this.assetRepository.update(id, {
-      ...changes,
-      updatedAt: new Date().toISOString(),
+      const result = await assets.update(id, {
+        ...changes,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Defensivo: findExisting ya garantizó que existe, pero otra conexión
+      // podría haberlo borrado en el medio.
+      if (!result) {
+        throw new NotFoundError(`No existe un activo con id "${id}".`);
+      }
+
+      await this.recordAudit(result.id, AuditAction.UPDATE, {
+        before: current,
+        after: result,
+      });
+      return result;
     });
 
-    // Defensivo: getById ya garantizó que existe, pero el repositorio podría
-    // devolver undefined ante una condición de carrera en otra implementación.
-    if (!updated) {
-      throw new NotFoundError(`No existe un activo con id "${id}".`);
-    }
-
-    this.recordAudit(updated.id, AuditAction.UPDATE, {
-      before: current,
-      after: updated,
-    });
     logger.info('Activo actualizado', { assetId: updated.id, changes });
-
     return updated;
   }
 
-  delete(id: string): void {
-    const asset = this.getById(id);
-    const deleted = this.assetRepository.delete(id);
+  async delete(id: string): Promise<void> {
+    const deleted = await this.assetRepository.transaction(async (assets) => {
+      const asset = await this.findExisting(assets, id);
 
-    if (!deleted) {
-      throw new NotFoundError(`No existe un activo con id "${id}".`);
-    }
+      if (!(await assets.delete(id))) {
+        throw new NotFoundError(`No existe un activo con id "${id}".`);
+      }
 
-    this.recordAudit(asset.id, AuditAction.DELETE, asset);
-    logger.info('Activo eliminado', { assetId: asset.id, symbol: asset.symbol });
+      await this.recordAudit(asset.id, AuditAction.DELETE, asset);
+      return asset;
+    });
+
+    logger.info('Activo eliminado', { assetId: deleted.id, symbol: deleted.symbol });
   }
 
   /**
@@ -133,8 +144,8 @@ export class AssetService {
    * existiendo: el sentido de un log inmutable es poder auditar justamente lo
    * que se borró. Solo devuelve 404 si nunca hubo ningún evento con ese id.
    */
-  getHistory(assetId: string): AuditLog[] {
-    const history = this.auditRepository.findByAssetId(assetId);
+  async getHistory(assetId: string): Promise<AuditLog[]> {
+    const history = await this.auditRepository.findByAssetId(assetId);
 
     if (history.length === 0) {
       throw new NotFoundError(
@@ -143,6 +154,14 @@ export class AssetService {
     }
 
     return history;
+  }
+
+  private async findExisting(assets: IAssetRepository, id: string): Promise<Asset> {
+    const asset = await assets.findById(id);
+    if (!asset) {
+      throw new NotFoundError(`No existe un activo con id "${id}".`);
+    }
+    return asset;
   }
 
   /** Regla de negocio: el portafolio nunca acepta saldos o precios no positivos. */
@@ -157,8 +176,12 @@ export class AssetService {
     }
   }
 
-  private recordAudit(assetId: string, action: AuditAction, snapshot: unknown): void {
-    this.auditRepository.append({
+  private async recordAudit(
+    assetId: string,
+    action: AuditAction,
+    snapshot: unknown
+  ): Promise<void> {
+    await this.auditRepository.append({
       id: randomUUID(),
       assetId,
       action,

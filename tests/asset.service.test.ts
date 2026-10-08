@@ -34,8 +34,8 @@ describe('AssetService', () => {
 
       const created = await assetService.create(validInput);
 
-      expect(assetRepository.findById(created.id)).toMatchObject(validInput);
-      expect(assetService.getAll()).toHaveLength(1);
+      expect(await assetRepository.findById(created.id)).toMatchObject(validInput);
+      expect(await assetService.getAll()).toHaveLength(1);
     });
 
     it('rechaza cantidades no positivas (regla de saldos negativos)', async () => {
@@ -62,14 +62,14 @@ describe('AssetService', () => {
       await assetService.create(validInput);
 
       await expect(assetService.create(validInput)).rejects.toThrow(ConflictError);
-      expect(assetService.getAll()).toHaveLength(1);
+      expect(await assetService.getAll()).toHaveLength(1);
     });
 
     it('no deja rastro en el portafolio cuando la operación es inválida', async () => {
       const { assetService } = buildAssetService();
 
       await expect(assetService.create({ ...validInput, amount: -5 })).rejects.toThrow();
-      expect(assetService.getAll()).toHaveLength(0);
+      expect(await assetService.getAll()).toHaveLength(0);
     });
   });
 
@@ -113,8 +113,8 @@ describe('AssetService', () => {
       const { assetService, auditRepository } = buildAssetService();
 
       await expect(assetService.create({ symbol: 'BTC' })).rejects.toThrow(ValidationError);
-      expect(assetService.getAll()).toHaveLength(0);
-      expect(auditRepository.findAll()).toHaveLength(0);
+      expect(await assetService.getAll()).toHaveLength(0);
+      expect(await auditRepository.findAll()).toHaveLength(0);
     });
   });
 
@@ -123,13 +123,13 @@ describe('AssetService', () => {
       const asset = buildAsset();
       const { assetService } = buildAssetService([asset]);
 
-      expect(assetService.getById(asset.id).symbol).toBe('BTC');
+      expect((await assetService.getById(asset.id)).symbol).toBe('BTC');
     });
 
     it('lanza NotFoundError si no existe', async () => {
       const { assetService } = buildAssetService();
 
-      expect(() => assetService.getById('inexistente')).toThrow(NotFoundError);
+      await expect(assetService.getById('inexistente')).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -138,7 +138,7 @@ describe('AssetService', () => {
       const asset = buildAsset({ updatedAt: '2020-01-01T00:00:00.000Z' });
       const { assetService } = buildAssetService([asset]);
 
-      const updated = assetService.update(asset.id, { amount: 7 });
+      const updated = await assetService.update(asset.id, { amount: 7 });
 
       expect(updated.amount).toBe(7);
       expect(updated.name).toBe(asset.name); // los demás campos no cambian
@@ -149,10 +149,8 @@ describe('AssetService', () => {
       const asset = buildAsset();
       const { assetService } = buildAssetService([asset]);
 
-      expect(() => assetService.update(asset.id, { amount: -2 })).toThrow(
-        BusinessRuleError
-      );
-      expect(assetService.getById(asset.id).amount).toBe(asset.amount);
+      await expect(assetService.update(asset.id, { amount: -2 })).rejects.toThrow(BusinessRuleError);
+      expect((await assetService.getById(asset.id)).amount).toBe(asset.amount);
     });
 
     it('rechaza cambiar el símbolo a uno ya presente en el portafolio', async () => {
@@ -160,17 +158,13 @@ describe('AssetService', () => {
       const eth = buildAsset({ id: 'id-eth', symbol: 'ETH', name: 'Ethereum' });
       const { assetService } = buildAssetService([btc, eth]);
 
-      expect(() => assetService.update('id-eth', { symbol: 'BTC' })).toThrow(
-        ConflictError
-      );
+      await expect(assetService.update('id-eth', { symbol: 'BTC' })).rejects.toThrow(ConflictError);
     });
 
     it('lanza NotFoundError si el activo no existe', async () => {
       const { assetService } = buildAssetService();
 
-      expect(() => assetService.update('inexistente', { amount: 1 })).toThrow(
-        NotFoundError
-      );
+      await expect(assetService.update('inexistente', { amount: 1 })).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -179,16 +173,16 @@ describe('AssetService', () => {
       const asset = buildAsset();
       const { assetService } = buildAssetService([asset]);
 
-      assetService.delete(asset.id);
+      await assetService.delete(asset.id);
 
-      expect(assetService.getAll()).toHaveLength(0);
-      expect(() => assetService.getById(asset.id)).toThrow(NotFoundError);
+      expect(await assetService.getAll()).toHaveLength(0);
+      await expect(assetService.getById(asset.id)).rejects.toThrow(NotFoundError);
     });
 
     it('lanza NotFoundError si el activo no existe', async () => {
       const { assetService } = buildAssetService();
 
-      expect(() => assetService.delete('inexistente')).toThrow(NotFoundError);
+      await expect(assetService.delete('inexistente')).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -197,7 +191,7 @@ describe('AssetService', () => {
       const { assetService, auditRepository } = buildAssetService();
 
       const created = await assetService.create(validInput);
-      const history = auditRepository.findByAssetId(created.id);
+      const history = await auditRepository.findByAssetId(created.id);
 
       expect(history).toHaveLength(1);
       expect(history[0]).toMatchObject({
@@ -211,8 +205,8 @@ describe('AssetService', () => {
       const { assetService, auditRepository } = buildAssetService();
       const created = await assetService.create(validInput);
 
-      assetService.update(created.id, { amount: 9 });
-      const history = auditRepository.findByAssetId(created.id);
+      await assetService.update(created.id, { amount: 9 });
+      const history = await auditRepository.findByAssetId(created.id);
 
       expect(history.map((entry) => entry.action)).toEqual([
         AuditAction.CREATE,
@@ -228,12 +222,12 @@ describe('AssetService', () => {
       const { assetService } = buildAssetService();
       const created = await assetService.create(validInput);
 
-      assetService.delete(created.id);
+      await assetService.delete(created.id);
 
       // El activo ya no existe...
-      expect(() => assetService.getById(created.id)).toThrow(NotFoundError);
+      await expect(assetService.getById(created.id)).rejects.toThrow(NotFoundError);
       // ...pero su historial sigue siendo auditable.
-      const history = assetService.getHistory(created.id);
+      const history = await assetService.getHistory(created.id);
       expect(history.map((entry) => entry.action)).toEqual([
         AuditAction.CREATE,
         AuditAction.DELETE,
@@ -245,16 +239,16 @@ describe('AssetService', () => {
 
       await expect(assetService.create({ ...validInput, amount: -1 })).rejects.toThrow();
 
-      expect(auditRepository.findAll()).toHaveLength(0);
+      expect(await auditRepository.findAll()).toHaveLength(0);
     });
 
     it('devuelve el historial en orden cronológico', async () => {
       const { assetService } = buildAssetService();
       const created = await assetService.create(validInput);
-      assetService.update(created.id, { amount: 2 });
-      assetService.update(created.id, { amount: 3 });
+      await assetService.update(created.id, { amount: 2 });
+      await assetService.update(created.id, { amount: 3 });
 
-      const history = assetService.getHistory(created.id);
+      const history = await assetService.getHistory(created.id);
       const timestamps = history.map((entry) => entry.timestamp);
 
       expect(history).toHaveLength(3);
@@ -264,17 +258,50 @@ describe('AssetService', () => {
     it('lanza NotFoundError si no hay historial para ese id', async () => {
       const { assetService } = buildAssetService();
 
-      expect(() => assetService.getHistory('inexistente')).toThrow(NotFoundError);
+      await expect(assetService.getHistory('inexistente')).rejects.toThrow(NotFoundError);
     });
 
     it('los registros de auditoría son inmutables', async () => {
       const { assetService, auditRepository } = buildAssetService();
       const created = await assetService.create(validInput);
-      const [entry] = auditRepository.findByAssetId(created.id);
+      const [entry] = await auditRepository.findByAssetId(created.id);
 
       expect(() => {
         (entry as { action: string }).action = 'HACKEADO';
       }).toThrow();
+    });
+  });
+
+  describe('consistencia entre activos (MySQL) y auditoría (MongoDB)', () => {
+    /** Simula que MongoDB está caído: cualquier append falla. */
+    function breakAudit(auditRepository: { append: unknown }) {
+      auditRepository.append = jest.fn().mockRejectedValue(new Error('MongoDB caído'));
+    }
+
+    it('si no se puede auditar el alta, el activo no queda creado', async () => {
+      const { assetService, auditRepository } = buildAssetService();
+      breakAudit(auditRepository);
+
+      await expect(assetService.create(validInput)).rejects.toThrow('MongoDB caído');
+      expect(await assetService.getAll()).toHaveLength(0);
+    });
+
+    it('si no se puede auditar la modificación, el activo queda como estaba', async () => {
+      const asset = buildAsset({ amount: 2 });
+      const { assetService, auditRepository } = buildAssetService([asset]);
+      breakAudit(auditRepository);
+
+      await expect(assetService.update(asset.id, { amount: 9 })).rejects.toThrow();
+      expect((await assetService.getById(asset.id)).amount).toBe(2);
+    });
+
+    it('si no se puede auditar la baja, el activo no se borra', async () => {
+      const asset = buildAsset();
+      const { assetService, auditRepository } = buildAssetService([asset]);
+      breakAudit(auditRepository);
+
+      await expect(assetService.delete(asset.id)).rejects.toThrow();
+      expect(await assetService.getById(asset.id)).toMatchObject({ id: asset.id });
     });
   });
 
@@ -285,7 +312,7 @@ describe('AssetService', () => {
 
       created.amount = 999;
 
-      expect(assetService.getById(created.id).amount).toBe(validInput.amount);
+      expect((await assetService.getById(created.id)).amount).toBe(validInput.amount);
     });
   });
 });

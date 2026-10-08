@@ -40,7 +40,7 @@ export class MarketService {
   async getAssetValuation(assetId: string): Promise<AssetValuation> {
     // Si el activo no existe, AssetService lanza NotFoundError y no llegamos
     // a gastar una llamada al servicio externo.
-    const asset = this.assetService.getById(assetId);
+    const asset = await this.assetService.getById(assetId);
     const currentPrice = await this.getPrice(asset.symbol);
 
     const currentValue = asset.amount * currentPrice;
