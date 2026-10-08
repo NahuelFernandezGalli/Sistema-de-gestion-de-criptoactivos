@@ -1,12 +1,13 @@
 {
   "info": {
-    "name": "Crypto Portfolio API v2",
-    "description": "Colección completa para probar la API de gestión de criptoactivos.\n\nOrden sugerido: correr las carpetas de arriba hacia abajo. La request 'Crear activo' guarda automáticamente el id generado en la variable de colección `assetId`, que usan el resto de las requests.\n\nVariables:\n- baseUrl: http://localhost:3000\n- assetId: se completa solo al crear un activo",
+    "name": "Crypto Portfolio API v3",
+    "description": "Colección completa para probar la API de gestión de criptoactivos.\n\nOrden sugerido: correr las carpetas de arriba hacia abajo. La request 'Crear activo' guarda automáticamente el id generado en la variable de colección `assetId`, que usan el resto de las requests.\n\nVariables:\n- baseUrl: http://localhost:3000\n- assetId: se completa solo al crear un activo\n- pipelineAssetId: se completa solo en la carpeta de Pipes & Filters",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "assetId", "value": "" }
+    { "key": "assetId", "value": "" },
+    { "key": "pipelineAssetId", "value": "" }
   ],
   "item": [
     {
@@ -341,6 +342,154 @@
             }
           ],
           "request": { "method": "GET", "url": "{{baseUrl}}/api/assets/{{assetId}}/history" }
+        }
+      ]
+    },
+    {
+      "name": "6. Pipes & Filters (Parte 3)",
+      "item": [
+        {
+          "name": "Ingesta: alta en EUR con formato sucio -> 201",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('NormalizationFilter: símbolo en mayúsculas y sin espacios', () => pm.expect(body.symbol).to.eql('ADA'));",
+                  "pm.test('NormalizationFilter: nombre sin espacios extra', () => pm.expect(body.name).to.eql('Cardano Coin'));",
+                  "pm.test('CurrencyConversionFilter: el precio se guardó convertido a USD', () => pm.expect(body.purchasePrice).to.be.a('number').and.not.eql(0.5));",
+                  "pm.test('no persiste el campo currency (todo queda en USD)', () => pm.expect(body).to.not.have.property('currency'));",
+                  "pm.collectionVariables.set('pipelineAssetId', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"  ada \",\n  \"name\": \"  Cardano    Coin \",\n  \"amount\": 100,\n  \"purchasePrice\": 0.5,\n  \"currency\": \"eur\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ingesta: moneda no soportada -> 400 (corta en ValidationFilter)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('el error apunta al campo currency', () => pm.expect(body.error.details.map(d => d.field)).to.include('currency'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/assets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"XRP\",\n  \"name\": \"Ripple\",\n  \"amount\": 1,\n  \"purchasePrice\": 1,\n  \"currency\": \"XYZ\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Análisis: POST /api/assets/analyze -> 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const bySymbol = Object.fromEntries(body.assets.map(a => [a.symbol, a]));",
+                  "pm.test('ScrubbingFilter: descarta montos en cero o negativos', () => pm.expect(body.discarded.map(d => d.symbol)).to.have.members(['SCAM', 'NEG']));",
+                  "pm.test('RiskAnalysisFilter: Whale Alert sobre BTC', () => { pm.expect(bySymbol.BTC.riskLevel).to.eql('high_risk'); pm.expect(bySymbol.BTC.riskFlags).to.include('WHALE_ALERT'); });",
+                  "pm.test('RiskAnalysisFilter: DOGE de alto riesgo por volatilidad', () => pm.expect(bySymbol.DOGE.riskFlags).to.include('HIGH_VOLATILITY'));",
+                  "pm.test('RiskAnalysisFilter: ETH normal', () => pm.expect(bySymbol.ETH.riskLevel).to.eql('normal'));",
+                  "pm.test('FormattingFilter: redondea a 2 decimales', () => pm.expect(bySymbol.BTC.purchasePrice).to.eql(40000.46));",
+                  "pm.test('FormattingFilter: agrega metadatos de auditoría', () => { pm.expect(body.metadata.analysisId).to.be.a('string'); pm.expect(body.metadata.analyzedAt).to.be.a('string'); pm.expect(body.metadata.receivedCount).to.eql(5); pm.expect(body.metadata.highRiskCount).to.eql(2); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/assets/analyze",
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"symbol\": \"btc\",\n    \"name\": \"Bitcoin\",\n    \"amount\": 3,\n    \"purchasePrice\": 40000.456\n  },\n  {\n    \"symbol\": \"doge\",\n    \"amount\": 1000,\n    \"purchasePrice\": 0.08123,\n    \"volatility\": 18.5\n  },\n  {\n    \"symbol\": \"eth\",\n    \"amount\": 1.5,\n    \"purchasePrice\": 2500,\n    \"volatility\": 3.2\n  },\n  {\n    \"symbol\": \"scam\",\n    \"amount\": 0,\n    \"purchasePrice\": 1\n  },\n  {\n    \"symbol\": \"neg\",\n    \"amount\": -2,\n    \"purchasePrice\": 100\n  }\n]"
+            }
+          }
+        },
+        {
+          "name": "Análisis: body que no es un array -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 400', () => pm.response.to.have.status(400));",
+                  "pm.test('código de error correcto', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/assets/analyze",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTC\",\n  \"amount\": 1,\n  \"purchasePrice\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Limpieza: eliminar el activo creado por la ingesta -> 204",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responde 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/assets/{{pipelineAssetId}}"
+          }
         }
       ]
     }
