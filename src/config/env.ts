@@ -13,9 +13,26 @@ function readNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+export type PersistenceDriver = 'database' | 'memory';
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: readNumber(process.env.PORT, 3000),
+
+  persistence: {
+    /**
+     * `database` (default): activos en MySQL y auditoría en MongoDB.
+     * `memory`: arrays en memoria, para correr la API sin levantar las bases.
+     */
+    driver: (process.env.PERSISTENCE_DRIVER === 'memory'
+      ? 'memory'
+      : 'database') as PersistenceDriver,
+    /** Cadena de conexión de MySQL (activos). */
+    mysqlUri:
+      process.env.MYSQL_URI ?? 'mysql://crypto:crypto@localhost:3306/crypto_portfolio',
+    /** Cadena de conexión de MongoDB (auditoría). */
+    mongoUri: process.env.MONGO_URI ?? 'mongodb://localhost:27017/crypto_portfolio',
+  },
 
   /** Servicio externo de precios de mercado (CoinGecko por defecto). */
   externalApiBaseUrl:

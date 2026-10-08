@@ -10,7 +10,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node --env-file=.env dist/database/mysql/migrate.js up",
+    "db:migrate:undo": "node --env-file=.env dist/database/mysql/migrate.js down",
+    "db:migrate:status": "node --env-file=.env dist/database/mysql/migrate.js status"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +21,10 @@
   "dependencies": {
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
+    "mongoose": "^9.11.1",
+    "mysql2": "^3.24.5",
+    "sequelize": "^6.37.8",
+    "umzug": "^3.8.3",
     "winston": "^3.19.0",
     "zod": "^4.5.4"
   },
@@ -26,6 +33,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.0",
     "jest": "^30.5.1",
+    "sqlite3": "^6.0.1",
     "ts-jest": "^29.4.12",
     "typescript": "^5.9.3"
   }
