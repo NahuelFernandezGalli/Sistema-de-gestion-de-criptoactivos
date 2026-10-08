@@ -1,6 +1,6 @@
-import { Sequelize, Transaction, UniqueConstraintError } from 'sequelize';
+import { ConnectionError, Sequelize, Transaction, UniqueConstraintError } from 'sequelize';
 import { AssetModel, AssetRow } from '../database/mysql/asset.sequelize-model';
-import { ConflictError } from '../errors/app-error';
+import { ConflictError, ServiceUnavailableError } from '../errors/app-error';
 import { Asset } from '../models/asset.model';
 import { IAssetRepository } from './asset.repository';
 
@@ -87,9 +87,13 @@ export class SequelizeAssetRepository implements IAssetRepository {
   async transaction<T>(work: (repository: IAssetRepository) => Promise<T>): Promise<T> {
     if (this.currentTransaction) return work(this);
 
-    return this.sequelize.transaction((transaction) =>
-      work(new SequelizeAssetRepository(this.sequelize, this.model, transaction))
-    );
+    try {
+      return await this.sequelize.transaction((transaction) =>
+        work(new SequelizeAssetRepository(this.sequelize, this.model, transaction))
+      );
+    } catch (error) {
+      throw translateError(error);
+    }
   }
 }
 
@@ -114,13 +118,23 @@ function toRow(asset: Asset) {
 }
 
 /**
+ * Traduce errores de Sequelize a errores de aplicación.
+ *
  * El índice único de `symbol` es la última línea de defensa contra
  * duplicados: si dos altas concurrentes pasan el chequeo del service, la base
  * rechaza la segunda y acá se traduce a un 409 en vez de un 500.
  */
-function translateError(error: unknown, symbol: string): unknown {
+function translateError(error: unknown, symbol?: string): unknown {
   if (error instanceof UniqueConstraintError) {
-    return new ConflictError(`El portafolio ya tiene una posición en "${symbol}".`);
+    return new ConflictError(
+      symbol
+        ? `El portafolio ya tiene una posición en "${symbol}".`
+        : 'Ya existe un activo con ese símbolo.'
+    );
+  }
+  // MySQL caído o inaccesible: 503 en lugar de un 500 genérico.
+  if (error instanceof ConnectionError) {
+    return new ServiceUnavailableError('La base de datos de activos (MySQL) no está disponible.');
   }
   return error;
 }

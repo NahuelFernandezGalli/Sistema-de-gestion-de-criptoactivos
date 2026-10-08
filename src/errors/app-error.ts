@@ -52,3 +52,10 @@ export class ExternalServiceError extends AppError {
     super(message, statusCode, 'EXTERNAL_SERVICE_ERROR');
   }
 }
+
+/** 503 - Una dependencia de infraestructura (base de datos) no está disponible. */
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string) {
+    super(message, 503, 'SERVICE_UNAVAILABLE');
+  }
+}

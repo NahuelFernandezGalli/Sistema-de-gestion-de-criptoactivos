@@ -4,6 +4,7 @@ import {
   defineAuditLogModel,
   ImmutableAuditLogError,
 } from '../src/database/mongo/audit-log.mongoose-model';
+import { ServiceUnavailableError } from '../src/errors/app-error';
 import { AuditAction } from '../src/models/audit.model';
 import { MongoAuditRepository, toAuditLog } from '../src/repositories/mongo-audit.repository';
 
@@ -106,6 +107,29 @@ describe('Auditoría en MongoDB', () => {
       });
       expect(result).toEqual(entry);
       expect(Object.isFrozen(result)).toBe(true);
+    });
+
+    it('si MongoDB no está accesible responde 503 (ServiceUnavailableError)', async () => {
+      const model = fakeModel();
+      const unreachable = Object.assign(new Error('getaddrinfo ENOTFOUND mongo'), {
+        name: 'MongoServerSelectionError',
+      });
+      model.create.mockRejectedValue(unreachable);
+      const repository = new MongoAuditRepository(model as unknown as AuditLogModel);
+
+      await expect(
+        repository.append({ id: 'a', assetId: 'b', action: AuditAction.CREATE, timestamp: new Date().toISOString() })
+      ).rejects.toThrow(ServiceUnavailableError);
+    });
+
+    it('otros errores se propagan sin traducir', async () => {
+      const model = fakeModel();
+      model.create.mockRejectedValue(new Error('validación'));
+      const repository = new MongoAuditRepository(model as unknown as AuditLogModel);
+
+      await expect(
+        repository.append({ id: 'a', assetId: 'b', action: AuditAction.CREATE, timestamp: new Date().toISOString() })
+      ).rejects.toThrow('validación');
     });
 
     it('findByAssetId filtra por activo y ordena cronológicamente', async () => {

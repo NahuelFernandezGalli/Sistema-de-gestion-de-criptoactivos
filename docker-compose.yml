@@ -1,0 +1,69 @@
+# Orquestación de la API con sus dos bases de datos:
+#   - mysql: activos (Sequelize)
+#   - mongo: log de auditoría (Mongoose)
+#
+# Uso:  docker compose up --build
+#
+# Las credenciales se toman del archivo .env (con defaults para desarrollo).
+# La API espera a que ambas bases estén "healthy" antes de arrancar y aplica
+# las migraciones pendientes al iniciar.
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-crypto_portfolio}
+      MYSQL_USER: ${MYSQL_USER:-crypto}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-crypto}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    ports:
+      - "${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # Por TCP (127.0.0.1) y no por socket: durante la inicialización MySQL
+      # levanta un servidor temporal sin red que respondería el ping antes de
+      # estar listo de verdad.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "${MONGO_HOST_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PERSISTENCE_DRIVER: database
+      # Dentro de la red de compose los hosts son los nombres de los servicios.
+      MYSQL_URI: mysql://${MYSQL_USER:-crypto}:${MYSQL_PASSWORD:-crypto}@mysql:3306/${MYSQL_DATABASE:-crypto_portfolio}
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DATABASE:-crypto_portfolio}
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  mongo-data:

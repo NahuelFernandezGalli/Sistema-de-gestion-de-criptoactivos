@@ -1,4 +1,5 @@
 import { AuditLogDocument, AuditLogModel } from '../database/mongo/audit-log.mongoose-model';
+import { ServiceUnavailableError } from '../errors/app-error';
 import { AuditLog } from '../models/audit.model';
 import { IAuditRepository } from './audit.repository';
 
@@ -13,30 +14,56 @@ export class MongoAuditRepository implements IAuditRepository {
   constructor(private readonly model: AuditLogModel) {}
 
   async append(entry: AuditLog): Promise<AuditLog> {
-    await this.model.create({
-      _id: entry.id,
-      assetId: entry.assetId,
-      action: entry.action,
-      timestamp: new Date(entry.timestamp),
-      snapshot: entry.snapshot,
-    });
+    await withConnectionCheck(() =>
+      this.model.create({
+        _id: entry.id,
+        assetId: entry.assetId,
+        action: entry.action,
+        timestamp: new Date(entry.timestamp),
+        snapshot: entry.snapshot,
+      })
+    );
     return Object.freeze({ ...entry });
   }
 
   async findByAssetId(assetId: string): Promise<AuditLog[]> {
-    const documents = await this.model
-      .find({ assetId })
-      .sort({ timestamp: 1, _id: 1 })
-      .lean<AuditLogDocument[]>();
+    const documents = await withConnectionCheck(() =>
+      this.model.find({ assetId }).sort({ timestamp: 1, _id: 1 }).lean<AuditLogDocument[]>()
+    );
     return documents.map(toAuditLog);
   }
 
   async findAll(): Promise<AuditLog[]> {
-    const documents = await this.model
-      .find()
-      .sort({ timestamp: 1, _id: 1 })
-      .lean<AuditLogDocument[]>();
+    const documents = await withConnectionCheck(() =>
+      this.model.find().sort({ timestamp: 1, _id: 1 }).lean<AuditLogDocument[]>()
+    );
     return documents.map(toAuditLog);
+  }
+}
+
+/** Errores del driver que indican que MongoDB no está accesible. */
+const CONNECTION_ERRORS = new Set([
+  'MongoServerSelectionError',
+  'MongooseServerSelectionError',
+  'MongoNetworkError',
+  'MongoNetworkTimeoutError',
+]);
+
+/**
+ * Si MongoDB está caído, la operación se rechaza con un 503 explícito en vez
+ * de un 500 genérico: el cliente sabe que puede reintentar y que el cambio NO
+ * se aplicó (AssetService deshace la transacción de MySQL).
+ */
+async function withConnectionCheck<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof Error && CONNECTION_ERRORS.has(error.name)) {
+      throw new ServiceUnavailableError(
+        'El sistema de auditoría (MongoDB) no está disponible. La operación no se realizó.'
+      );
+    }
+    throw error;
   }
 }
 

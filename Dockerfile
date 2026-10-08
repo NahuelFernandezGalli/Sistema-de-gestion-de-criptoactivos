@@ -4,7 +4,9 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+# --ignore-scripts: para compilar no hacen falta binarios nativos (sqlite3 es
+# solo para tests y no tiene binario precompilado para Alpine).
+RUN npm ci --ignore-scripts
 
 COPY tsconfig.json ./
 COPY src ./src
@@ -18,12 +20,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 
 EXPOSE 3000
 
 # Las variables de entorno se inyectan al correr el contenedor
-# (docker run --env-file .env ...), no se copian dentro de la imagen.
+# (docker compose / docker run --env-file .env), no se copian en la imagen.
 CMD ["node", "dist/server.js"]
