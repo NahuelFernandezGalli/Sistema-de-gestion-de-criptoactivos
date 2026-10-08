@@ -37,6 +37,14 @@ export const config = {
     silent: process.env.NODE_ENV === 'test',
   },
 
+  /** Umbrales de RiskAnalysisFilter (POST /api/assets/analyze). */
+  analytics: {
+    /** Valor de posición (USD) a partir del cual se dispara la Whale Alert. */
+    whaleThresholdUsd: readNumber(process.env.ANALYTICS_WHALE_THRESHOLD_USD, 100_000),
+    /** Volatilidad (%) a partir de la cual el activo es de alto riesgo. */
+    volatilityThresholdPct: readNumber(process.env.ANALYTICS_VOLATILITY_THRESHOLD_PCT, 10),
+  },
+
   /** Rate limiting del endpoint de mercado: 5 peticiones por minuto por IP. */
   rateLimit: {
     windowMs: readNumber(process.env.RATE_LIMIT_WINDOW_MS, 60_000),

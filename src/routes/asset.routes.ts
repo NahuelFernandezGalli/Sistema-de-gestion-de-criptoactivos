@@ -13,7 +13,11 @@ import { assetIdParamSchema, updateAssetSchema } from '../schemas/asset.schema';
  */
 export function buildAssetRoutes(container: Container): Router {
   const router = Router();
-  const { assetController, marketController } = container;
+  const { assetController, marketController, analysisController } = container;
+
+  // Pipeline de análisis: recibe un array de activos y devuelve un reporte de
+  // riesgo. No persiste nada.
+  router.post('/analyze', analysisController.analyze);
 
   router.get(
     '/:id/history',

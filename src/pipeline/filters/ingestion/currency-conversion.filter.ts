@@ -1,6 +1,7 @@
 import { CreateAssetDTO } from '../../../schemas/asset.schema';
 import { IExchangeRateProvider } from '../../../services/exchange-rate-provider.service';
 import { logger } from '../../../utils/logger';
+import { round } from '../../../utils/math';
 import { Filter } from '../../pipeline';
 import { NormalizedAssetInput } from './normalization.filter';
 
@@ -26,7 +27,9 @@ export class CurrencyConversionFilter implements Filter<NormalizedAssetInput, Cr
     }
 
     const rate = await this.exchangeRateProvider.getUsdRate(currency);
-    const purchasePrice = roundPrice(asset.purchasePrice * rate);
+    // 8 decimales: alcanza para monedas de precio muy bajo (ej. SHIB) y
+    // elimina la basura de punto flotante de la multiplicación.
+    const purchasePrice = round(asset.purchasePrice * rate, 8);
 
     logger.info(
       `${this.name}: ${asset.symbol} ${asset.purchasePrice} ${currency} -> ${purchasePrice} USD.`,
@@ -36,10 +39,3 @@ export class CurrencyConversionFilter implements Filter<NormalizedAssetInput, Cr
   }
 }
 
-/**
- * 8 decimales: suficiente para monedas de precio muy bajo (ej. SHIB) y elimina
- * la basura del punto flotante de la multiplicación.
- */
-function roundPrice(value: number): number {
-  return Math.round(value * 1e8) / 1e8;
-}

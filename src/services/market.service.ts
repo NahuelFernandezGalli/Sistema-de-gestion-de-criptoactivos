@@ -1,6 +1,7 @@
 import { AssetValuation } from '../models/asset.model';
 import { TtlCache } from '../utils/cache';
 import { logger } from '../utils/logger';
+import { round } from '../utils/math';
 import { AssetService } from './asset.service';
 import { IPriceProvider } from './price-provider.service';
 
@@ -53,16 +54,11 @@ export class MarketService {
       amount: asset.amount,
       purchasePrice: asset.purchasePrice,
       currentPrice,
-      currentValue: round2(currentValue),
-      purchaseValue: round2(purchaseValue),
-      profitLoss: round2(profitLoss),
-      profitLossPercentage: round2((profitLoss / purchaseValue) * 100),
+      currentValue: round(currentValue),
+      purchaseValue: round(purchaseValue),
+      profitLoss: round(profitLoss),
+      profitLossPercentage: round((profitLoss / purchaseValue) * 100),
       pricedAt: new Date().toISOString(),
     };
   }
-}
-
-/** Redondea a 2 decimales evitando la basura del punto flotante (0.1+0.2). */
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

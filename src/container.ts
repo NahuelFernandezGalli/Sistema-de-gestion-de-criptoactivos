@@ -8,6 +8,9 @@ import { MarketService } from './services/market.service';
 import { CoinGeckoPriceProvider } from './services/price-provider.service';
 import { CoinGeckoExchangeRateProvider } from './services/exchange-rate-provider.service';
 import { buildIngestionPipeline } from './pipeline/ingestion.pipeline';
+import { buildAnalyticsPipeline } from './pipeline/analytics.pipeline';
+import { AnalysisService } from './services/analysis.service';
+import { AnalysisController } from './controllers/analysis.controller';
 import { AssetController } from './controllers/asset.controller';
 import { MarketController } from './controllers/market.controller';
 import { TtlCache } from './utils/cache';
@@ -54,14 +57,17 @@ export function buildContainer() {
   const priceProvider = new CoinGeckoPriceProvider();
   const priceCache = new TtlCache<number>(config.priceCacheTtlMs);
   const marketService = new MarketService(assetService, priceProvider, priceCache);
+  const analysisService = new AnalysisService(buildAnalyticsPipeline(config.analytics));
 
   return {
     assetRepository,
     auditRepository,
     assetService,
     marketService,
+    analysisService,
     assetController: new AssetController(assetService),
     marketController: new MarketController(marketService),
+    analysisController: new AnalysisController(analysisService),
   };
 }
 
