@@ -1,5 +1,5 @@
 import express, { Application, Request, Response } from 'express';
-import { buildContainer, Container } from './container';
+import { Container } from './container';
 import { buildApiRoutes } from './routes';
 import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
 import { requestLogger } from './middlewares/request-logger.middleware';
@@ -7,11 +7,11 @@ import { requestLogger } from './middlewares/request-logger.middleware';
 /**
  * Construye la aplicación Express.
  *
- * Recibe el contenedor de dependencias por parámetro (con un default para uso
- * normal) para que los tests puedan inyectar repositorios o proveedores falsos
- * sin tocar el resto de la app.
+ * Recibe el contenedor de dependencias ya armado (ver server.ts): la app no
+ * sabe si los repositorios son MySQL/MongoDB o en memoria, y los tests pueden
+ * inyectar dobles sin tocar el resto.
  */
-export function createApp(container: Container = buildContainer()): Application {
+export function createApp(container: Container): Application {
   const app = express();
 
   app.use(express.json());

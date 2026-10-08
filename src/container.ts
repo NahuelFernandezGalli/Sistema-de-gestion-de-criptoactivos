@@ -1,8 +1,6 @@
-import { randomUUID } from 'crypto';
 import { config } from './config/env';
-import { Asset } from './models/asset.model';
-import { InMemoryAssetRepository } from './repositories/asset.repository';
-import { InMemoryAuditRepository } from './repositories/audit.repository';
+import { IAssetRepository } from './repositories/asset.repository';
+import { IAuditRepository } from './repositories/audit.repository';
 import { AssetService } from './services/asset.service';
 import { MarketService } from './services/market.service';
 import { CoinGeckoPriceProvider } from './services/price-provider.service';
@@ -19,39 +17,17 @@ import { TtlCache } from './utils/cache';
  * Composition root: el único lugar donde se instancian las implementaciones
  * concretas y se inyectan las dependencias.
  *
- * El resto de la aplicación depende de interfaces, así que cambiar el
- * repositorio en memoria por uno con base de datos, o CoinGecko por otro
- * proveedor, se hace solamente acá.
+ * Los repositorios llegan por parámetro (los arma `initPersistence` con MySQL
+ * y MongoDB, o en memoria). Así el contenedor no sabe qué motor hay detrás:
+ * pasar de arrays en memoria a bases de datos reales no tocó ni services, ni
+ * controllers, ni pipelines.
  */
-
-function seedAssets(): Asset[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: randomUUID(),
-      symbol: 'BTC',
-      name: 'Bitcoin',
-      amount: 0.5,
-      purchasePrice: 42000,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: randomUUID(),
-      symbol: 'ETH',
-      name: 'Ethereum',
-      amount: 3,
-      purchasePrice: 2500,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
+export interface Repositories {
+  assetRepository: IAssetRepository;
+  auditRepository: IAuditRepository;
 }
 
-export function buildContainer() {
-  const assetRepository = new InMemoryAssetRepository(seedAssets());
-  const auditRepository = new InMemoryAuditRepository();
-
+export function buildContainer({ assetRepository, auditRepository }: Repositories) {
   const ingestionPipeline = buildIngestionPipeline(new CoinGeckoExchangeRateProvider());
   const assetService = new AssetService(assetRepository, auditRepository, ingestionPipeline);
   const priceProvider = new CoinGeckoPriceProvider();
@@ -60,8 +36,6 @@ export function buildContainer() {
   const analysisService = new AnalysisService(buildAnalyticsPipeline(config.analytics));
 
   return {
-    assetRepository,
-    auditRepository,
     assetService,
     marketService,
     analysisService,
