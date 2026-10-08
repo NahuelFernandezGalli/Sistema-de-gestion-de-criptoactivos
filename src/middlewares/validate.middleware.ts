@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodError, ZodType } from 'zod';
-import { ValidationError } from '../errors/app-error';
+import { fromZodError } from '../errors/zod-error';
 
 interface ValidationTargets {
   body?: ZodType;
@@ -31,16 +31,7 @@ export function validate(targets: ValidationTargets) {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        next(
-          new ValidationError(
-            'Los datos enviados no son válidos.',
-            error.issues.map((issue) => ({
-              field: issue.path.join('.') || '(raíz)',
-              message: issue.message,
-              code: issue.code,
-            }))
-          )
-        );
+        next(fromZodError(error));
         return;
       }
       next(error);

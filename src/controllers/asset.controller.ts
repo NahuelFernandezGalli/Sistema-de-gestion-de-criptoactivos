@@ -1,11 +1,7 @@
 import { Request, Response } from 'express';
 import { AssetService } from '../services/asset.service';
 import { validatedBody, validatedParams } from '../middlewares/validate.middleware';
-import {
-  AssetIdParam,
-  CreateAssetDTO,
-  UpdateAssetDTO,
-} from '../schemas/asset.schema';
+import { AssetIdParam, UpdateAssetDTO } from '../schemas/asset.schema';
 
 /**
  * Capa de transporte HTTP: extrae datos de la request, delega en el service y
@@ -27,9 +23,9 @@ export class AssetController {
     res.status(200).json(this.assetService.getById(id));
   };
 
-  create = (_req: Request, res: Response): void => {
-    const data = validatedBody<CreateAssetDTO>(res);
-    const created = this.assetService.create(data);
+  /** El body se pasa crudo: lo valida y transforma el pipeline de ingesta. */
+  create = async (req: Request, res: Response): Promise<void> => {
+    const created = await this.assetService.create(req.body);
     res.status(201).json(created);
   };
 

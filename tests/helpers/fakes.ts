@@ -3,6 +3,8 @@ import { InMemoryAssetRepository } from '../../src/repositories/asset.repository
 import { InMemoryAuditRepository } from '../../src/repositories/audit.repository';
 import { AssetService } from '../../src/services/asset.service';
 import { IPriceProvider } from '../../src/services/price-provider.service';
+import { IExchangeRateProvider } from '../../src/services/exchange-rate-provider.service';
+import { buildIngestionPipeline } from '../../src/pipeline/ingestion.pipeline';
 
 /**
  * Helpers de test.
@@ -28,6 +30,21 @@ export class FakePriceProvider implements IPriceProvider {
   });
 }
 
+/** Proveedor de tasas falso: cuántos USD vale 1 unidad de cada moneda. */
+export class FakeExchangeRateProvider implements IExchangeRateProvider {
+  constructor(private readonly usdRates: Record<string, number> = { EUR: 1.1 }) {}
+
+  getUsdRate = jest.fn(async (currency: string): Promise<number> => {
+    if (currency.toUpperCase() === 'USD') return 1;
+    const rate = this.usdRates[currency.toUpperCase()];
+
+    if (rate === undefined) {
+      throw new Error(`FakeExchangeRateProvider sin tasa configurada para ${currency}`);
+    }
+    return rate;
+  });
+}
+
 export function buildAsset(overrides: Partial<Asset> = {}): Asset {
   const now = new Date().toISOString();
   return {
@@ -42,11 +59,18 @@ export function buildAsset(overrides: Partial<Asset> = {}): Asset {
   };
 }
 
-/** Arma un AssetService con repositorios en memoria vacíos (o con seed). */
-export function buildAssetService(seed: Asset[] = []) {
+/**
+ * Arma un AssetService con repositorios en memoria vacíos (o con seed) y el
+ * pipeline de ingesta real, conectado a un proveedor de tasas falso.
+ */
+export function buildAssetService(
+  seed: Asset[] = [],
+  exchangeRateProvider = new FakeExchangeRateProvider()
+) {
   const assetRepository = new InMemoryAssetRepository(seed);
   const auditRepository = new InMemoryAuditRepository();
-  const assetService = new AssetService(assetRepository, auditRepository);
+  const ingestionPipeline = buildIngestionPipeline(exchangeRateProvider);
+  const assetService = new AssetService(assetRepository, auditRepository, ingestionPipeline);
 
-  return { assetService, assetRepository, auditRepository };
+  return { assetService, assetRepository, auditRepository, exchangeRateProvider };
 }

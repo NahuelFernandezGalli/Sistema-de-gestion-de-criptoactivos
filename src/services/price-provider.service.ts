@@ -1,6 +1,6 @@
 import { config } from '../config/env';
 import { ExternalServiceError, NotFoundError } from '../errors/app-error';
-import { logger } from '../utils/logger';
+import { fetchJson } from '../utils/http';
 
 /**
  * Contrato del proveedor de precios de mercado.
@@ -52,32 +52,12 @@ export class CoinGeckoPriceProvider implements IPriceProvider {
     }
 
     const url = `${this.baseUrl}/simple/price?ids=${coingeckoId}&vs_currencies=usd`;
-
-    // AbortSignal.timeout evita que una API externa lenta cuelgue el request.
-    let response: Response;
-    try {
-      response = await fetch(url, { signal: AbortSignal.timeout(this.timeoutMs) });
-    } catch (error) {
-      logger.error('Fallo al contactar el servicio de precios', {
-        symbol,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw new ExternalServiceError(
-        'No se pudo contactar al servicio externo de precios de mercado.'
-      );
-    }
-
-    if (!response.ok) {
-      logger.error('El servicio de precios respondió con error', {
-        symbol,
-        status: response.status,
-      });
-      throw new ExternalServiceError(
-        `El servicio externo de precios respondió con estado ${response.status}.`
-      );
-    }
-
-    const data = (await response.json()) as Record<string, { usd?: number }>;
+    const data = await fetchJson<Record<string, { usd?: number }>>(
+      url,
+      this.timeoutMs,
+      'servicio externo de precios de mercado',
+      { symbol }
+    );
     const price = data[coingeckoId]?.usd;
 
     if (typeof price !== 'number') {

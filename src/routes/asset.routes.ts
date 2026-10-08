@@ -2,11 +2,7 @@ import { Router } from 'express';
 import { Container } from '../container';
 import { validate } from '../middlewares/validate.middleware';
 import { marketRateLimiter } from '../middlewares/rate-limit.middleware';
-import {
-  assetIdParamSchema,
-  createAssetSchema,
-  updateAssetSchema,
-} from '../schemas/asset.schema';
+import { assetIdParamSchema, updateAssetSchema } from '../schemas/asset.schema';
 
 /**
  * Rutas del recurso "assets".
@@ -38,7 +34,9 @@ export function buildAssetRoutes(container: Container): Router {
 
   router.get('/:id', validate({ params: assetIdParamSchema }), assetController.getById);
 
-  router.post('/', validate({ body: createAssetSchema }), assetController.create);
+  // Sin middleware de validación: el alta pasa por el pipeline de ingesta,
+  // cuyo primer filtro (ValidationFilter) valida con el mismo esquema Zod.
+  router.post('/', assetController.create);
 
   router.put(
     '/:id',

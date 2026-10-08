@@ -3,8 +3,9 @@ import { Asset } from '../models/asset.model';
 import { AuditAction, AuditLog } from '../models/audit.model';
 import { IAssetRepository } from '../repositories/asset.repository';
 import { IAuditRepository } from '../repositories/audit.repository';
-import { CreateAssetDTO, UpdateAssetDTO } from '../schemas/asset.schema';
+import { UpdateAssetDTO } from '../schemas/asset.schema';
 import { BusinessRuleError, ConflictError, NotFoundError } from '../errors/app-error';
+import { IngestionPipeline } from '../pipeline/ingestion.pipeline';
 import { logger } from '../utils/logger';
 
 /**
@@ -22,7 +23,8 @@ import { logger } from '../utils/logger';
 export class AssetService {
   constructor(
     private readonly assetRepository: IAssetRepository,
-    private readonly auditRepository: IAuditRepository
+    private readonly auditRepository: IAuditRepository,
+    private readonly ingestionPipeline: IngestionPipeline
   ) {}
 
   getAll(): Asset[] {
@@ -37,7 +39,17 @@ export class AssetService {
     return asset;
   }
 
-  create(data: CreateAssetDTO): Asset {
+  /**
+   * Alta de un activo. Recibe el payload CRUDO: validarlo, normalizarlo y
+   * pasarlo a USD es trabajo del pipeline de ingesta. Que el pipeline viva
+   * dentro del service (y no en el controller) garantiza que no haya forma de
+   * dar de alta un activo salteándolo.
+   */
+  async create(input: unknown): Promise<Asset> {
+    const data = await this.ingestionPipeline.run(input);
+
+    // Las reglas de negocio se siguen verificando acá aunque Zod ya las haya
+    // chequeado: el service no confía en que lo llamen con datos validados.
     this.assertPositiveAmounts(data.amount, data.purchasePrice);
 
     const duplicated = this.assetRepository.findBySymbol(data.symbol);

@@ -27,6 +27,9 @@ export const config = {
   /** TTL de la caché de precios de mercado (ms). */
   priceCacheTtlMs: readNumber(process.env.PRICE_CACHE_TTL_MS, 30_000),
 
+  /** TTL de la caché de tasas de cambio fiat (ms). Cambian poco: 10 minutos. */
+  exchangeRateCacheTtlMs: readNumber(process.env.EXCHANGE_RATE_CACHE_TTL_MS, 600_000),
+
   logging: {
     level: process.env.LOG_LEVEL ?? 'info',
     file: process.env.LOG_FILE ?? 'logs/app.log',

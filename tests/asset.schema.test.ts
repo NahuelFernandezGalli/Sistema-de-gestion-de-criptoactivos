@@ -13,16 +13,37 @@ describe('Esquemas de validación (Zod)', () => {
       purchasePrice: 40000,
     };
 
-    it('acepta un payload válido y normaliza el símbolo a mayúsculas', () => {
-      const parsed = createAssetSchema.parse(valid);
-
-      expect(parsed.symbol).toBe('BTC');
-    });
-
-    it('recorta los espacios sobrantes del nombre', () => {
+    it('acepta un payload válido sin normalizarlo (eso es tarea de NormalizationFilter)', () => {
       const parsed = createAssetSchema.parse({ ...valid, name: '  Bitcoin  ' });
 
-      expect(parsed.name).toBe('Bitcoin');
+      expect(parsed.symbol).toBe('btc');
+      expect(parsed.name).toBe('  Bitcoin  ');
+    });
+
+    it('asume USD si no se envía la moneda', () => {
+      expect(createAssetSchema.parse(valid).currency).toBe('USD');
+    });
+
+    it('acepta monedas soportadas sin importar mayúsculas', () => {
+      expect(createAssetSchema.parse({ ...valid, currency: 'eur' }).currency).toBe('eur');
+    });
+
+    it('rechaza monedas no soportadas', () => {
+      expect(() => createAssetSchema.parse({ ...valid, currency: 'XYZ' })).toThrow();
+    });
+
+    it('rechaza un símbolo que solo tiene espacios', () => {
+      expect(() => createAssetSchema.parse({ ...valid, symbol: '   ' })).toThrow();
+    });
+
+    it('rechaza un símbolo con espacios intermedios', () => {
+      expect(() => createAssetSchema.parse({ ...valid, symbol: 'B TC' })).toThrow();
+    });
+
+    it('mide la longitud del símbolo sin contar los espacios de los extremos', () => {
+      expect(() =>
+        createAssetSchema.parse({ ...valid, symbol: `  ${'A'.repeat(15)}  ` })
+      ).not.toThrow();
     });
 
     it('rechaza campos faltantes', () => {
@@ -59,6 +80,12 @@ describe('Esquemas de validación (Zod)', () => {
   describe('updateAssetSchema', () => {
     it('acepta una actualización parcial', () => {
       expect(() => updateAssetSchema.parse({ amount: 3 })).not.toThrow();
+    });
+
+    it('normaliza símbolo y nombre (el PUT no pasa por el pipeline)', () => {
+      const parsed = updateAssetSchema.parse({ symbol: ' eth ', name: ' Ether   Classic ' });
+
+      expect(parsed).toEqual({ symbol: 'ETH', name: 'Ether Classic' });
     });
 
     it('rechaza un body vacío', () => {

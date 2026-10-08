@@ -6,6 +6,8 @@ import { InMemoryAuditRepository } from './repositories/audit.repository';
 import { AssetService } from './services/asset.service';
 import { MarketService } from './services/market.service';
 import { CoinGeckoPriceProvider } from './services/price-provider.service';
+import { CoinGeckoExchangeRateProvider } from './services/exchange-rate-provider.service';
+import { buildIngestionPipeline } from './pipeline/ingestion.pipeline';
 import { AssetController } from './controllers/asset.controller';
 import { MarketController } from './controllers/market.controller';
 import { TtlCache } from './utils/cache';
@@ -47,7 +49,8 @@ export function buildContainer() {
   const assetRepository = new InMemoryAssetRepository(seedAssets());
   const auditRepository = new InMemoryAuditRepository();
 
-  const assetService = new AssetService(assetRepository, auditRepository);
+  const ingestionPipeline = buildIngestionPipeline(new CoinGeckoExchangeRateProvider());
+  const assetService = new AssetService(assetRepository, auditRepository, ingestionPipeline);
   const priceProvider = new CoinGeckoPriceProvider();
   const priceCache = new TtlCache<number>(config.priceCacheTtlMs);
   const marketService = new MarketService(assetService, priceProvider, priceCache);
