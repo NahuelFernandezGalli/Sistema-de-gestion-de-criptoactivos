@@ -1,6 +1,6 @@
 # Crypto Portfolio API — Documentación técnica
 
-API REST para la gestión de un portafolio de criptoactivos, con auditoría inmutable de movimientos, consulta de precios de mercado en tiempo real y procesamiento de datos con el patrón **Pipes & Filters**.
+API REST para la gestión de un portafolio de criptoactivos, con auditoría inmutable de movimientos, consulta de precios de mercado en tiempo real y procesamiento de datos con el patrón **Pipes & Filters** y persistencia en **MySQL** (activos) y **MongoDB** (auditoría).
 
 Proyecto de la materia **Arquitectura de Software** (Universidad ORT Uruguay).
 
@@ -28,7 +28,7 @@ Proyecto de la materia **Arquitectura de Software** (Universidad ORT Uruguay).
 |-----------|----------------|---------|
 | Node.js   | **20.6**       | Se usa el flag nativo `--env-file` (disponible desde 20.6) y `fetch` global |
 | npm       | 10             | Gestor de paquetes |
-| Docker    | (opcional)     | Solo si se quiere correr contenerizado |
+| Docker + Docker Compose | (recomendado) | Levanta la API con MySQL y MongoDB en un solo comando |
 
 Verificar la versión instalada:
 
@@ -36,24 +36,36 @@ Verificar la versión instalada:
 node --version   # debe ser >= v20.6
 ```
 
-### Pasos
+### Opción A: todo con Docker Compose (recomendada)
 
 ```bash
-# 1. Posicionarse en la carpeta del proyecto
 cd crypto-portfolio-api
+cp .env.example .env        # en Windows (CMD): copy .env.example .env
+docker compose up --build
+```
 
-# 2. Instalar dependencias
+Levanta MySQL, MongoDB y la API. La API espera a que las dos bases estén listas, aplica las migraciones pendientes y recién ahí abre el puerto 3000.
+
+### Opción B: la API local y las bases en Docker
+
+```bash
+# 1. Instalar dependencias
 npm install
 
-# 3. Crear el archivo de variables de entorno a partir del ejemplo
-cp .env.example .env        # en Windows (CMD): copy .env.example .env
+# 2. Variables de entorno (MYSQL_URI y MONGO_URI ya apuntan a localhost)
+cp .env.example .env
 
-# 4. Compilar TypeScript
+# 3. Levantar solo las bases
+docker compose up -d mysql mongo
+
+# 4. Compilar y levantar la API (aplica las migraciones al arrancar)
 npm run build
-
-# 5. Levantar el servidor
 npm start
 ```
+
+### Opción C: sin bases de datos
+
+Con `PERSISTENCE_DRIVER=memory` en el `.env`, la API usa los repositorios en memoria (con dos activos de ejemplo). Sirve para probar rápido, pero los datos se pierden al reiniciar.
 
 Si todo salió bien, en consola aparece:
 
@@ -79,6 +91,9 @@ curl http://localhost:3000/health
 | `npm run test:watch` | `jest --watch` | Tests en modo watch |
 | `npm run test:coverage` | `jest --coverage` | Tests + reporte de cobertura |
 | `npm run typecheck` | `tsc --noEmit` | Chequeo de tipos sin generar archivos |
+| `npm run db:migrate` | `migrate.js up` | Aplica las migraciones pendientes de MySQL |
+| `npm run db:migrate:undo` | `migrate.js down` | Revierte la última migración |
+| `npm run db:migrate:status` | `migrate.js status` | Lista migraciones aplicadas y pendientes |
 
 ---
 
@@ -91,6 +106,11 @@ Toda la configuración se maneja por variables de entorno en el archivo `.env`, 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
 | `PORT` | `3000` | Puerto donde escucha el servidor |
+| `PERSISTENCE_DRIVER` | `database` | `database` (MySQL + MongoDB) o `memory` (sin bases) |
+| `MYSQL_URI` | `mysql://crypto:crypto@localhost:3306/crypto_portfolio` | Cadena de conexión de MySQL (activos) |
+| `MONGO_URI` | `mongodb://localhost:27017/crypto_portfolio` | Cadena de conexión de MongoDB (auditoría) |
+| `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_ROOT_PASSWORD` | `crypto_portfolio` / `crypto` / `crypto` / `root` | Credenciales con las que docker-compose crea la base MySQL |
+| `MONGO_DATABASE` | `crypto_portfolio` | Base de MongoDB que usa la API dentro de docker-compose |
 | `EXTERNAL_API_BASE_URL` | `https://api.coingecko.com/api/v3` | Base URL del servicio externo de precios |
 | `EXTERNAL_API_TIMEOUT_MS` | `5000` | Timeout de las llamadas al servicio externo |
 | `PRICE_CACHE_TTL_MS` | `30000` | Tiempo de vida de la caché de precios (0 = deshabilitada) |
@@ -325,6 +345,7 @@ Todas las respuestas de error usan el mismo sobre:
 | `422` | `BUSINESS_RULE_VIOLATION` | Se viola una regla de negocio (ej. saldo no positivo) |
 | `429` | `RATE_LIMIT_EXCEEDED` | Se superaron las 5 consultas de mercado por minuto |
 | `502` | `EXTERNAL_SERVICE_ERROR` | Falló la comunicación con el servicio de precios o de tasas de cambio |
+| `503` | `SERVICE_UNAVAILABLE` | MySQL o MongoDB no están accesibles. La operación **no** se aplicó y se puede reintentar |
 | `500` | `INTERNAL_SERVER_ERROR` | Error inesperado (el detalle queda solo en los logs) |
 
 ### Pruebas con Postman
@@ -346,10 +367,14 @@ Todas las respuestas de error usan el mismo sobre:
 | Validación | Zod | 4.x | Esquemas de validación + inferencia de tipos |
 | Logging | Winston | 3.x | Logger con múltiples transports |
 | Seguridad | express-rate-limit | 8.x | Control de tasa por IP |
+| Base relacional | MySQL + Sequelize | 8.4 / 6.x | Activos (tabla `assets`) |
+| Migraciones | Umzug | 3.x | Migraciones versionadas de MySQL |
+| Base documental | MongoDB + Mongoose | 7 / 9.x | Log de auditoría (colección `audit_logs`) |
 | Testing | Jest + ts-jest | 30.x / 29.x | Tests unitarios sobre TypeScript |
-| Contenedores | Docker | — | Imagen multi-stage |
+| Testing | SQLite (`sqlite3`) | 6.x | Base en memoria para los tests del repositorio de Sequelize (solo dev) |
+| Contenedores | Docker + Compose | — | Imagen multi-stage y orquestación de API + bases |
 
-**Dependencias de producción:** solo 4 (`express`, `zod`, `winston`, `express-rate-limit`). No se usan `dotenv` (reemplazado por `--env-file`), `axios` (reemplazado por `fetch` nativo) ni `uuid` (reemplazado por `crypto.randomUUID()`).
+**Dependencias de producción:** `express`, `zod`, `winston`, `express-rate-limit`, y desde la Parte 4 `sequelize`, `mysql2`, `umzug` y `mongoose`. No se usan `dotenv` (reemplazado por `--env-file`), `axios` (reemplazado por `fetch` nativo) ni `uuid` (reemplazado por `crypto.randomUUID()`).
 
 ---
 
@@ -389,7 +414,7 @@ El proyecto sigue una **arquitectura en capas** con dependencias en una sola dir
           │
           ▼
 ┌───────────────────┐
-│   Repositories    │  Acceso a datos (hoy: arrays en memoria)
+│   Repositories    │  Acceso a datos: MySQL (activos), MongoDB (auditoría)
 └─────────┬─────────┘
           │
           ▼
@@ -426,7 +451,21 @@ src/
 │           └── formatting.filter.ts
 ├── repositories/
 │   ├── asset.repository.ts         # IAssetRepository + InMemoryAssetRepository
-│   └── audit.repository.ts         # IAuditRepository + InMemoryAuditRepository
+│   ├── audit.repository.ts         # IAuditRepository + InMemoryAuditRepository
+│   ├── sequelize-asset.repository.ts # Activos en MySQL
+│   └── mongo-audit.repository.ts   # Auditoría en MongoDB
+├── database/
+│   ├── persistence.ts              # Conecta las bases y arma los repositorios
+│   ├── mysql/
+│   │   ├── sequelize.ts            # Conexión
+│   │   ├── asset.sequelize-model.ts
+│   │   ├── migrator.ts             # Umzug
+│   │   ├── migrate.ts              # CLI: npm run db:migrate
+│   │   └── migrations/
+│   │       └── 20261008120000-create-assets.ts
+│   └── mongo/
+│       ├── mongo.ts                # Conexión
+│       └── audit-log.mongoose-model.ts
 ├── services/
 │   ├── asset.service.ts            # Reglas de negocio + coordinación de auditoría
 │   ├── market.service.ts           # Cálculo de valuación y rentabilidad
@@ -479,7 +518,7 @@ tests/
 2. **Controller** pasa el body crudo a `assetService.create()`.
 3. **Service** corre el **pipeline de ingesta** (ver más abajo): validación → normalización → conversión a USD. Si un filtro falla, el pipeline se corta y el error sigue de largo (ej. `ValidationError` → `400`).
 4. Con el DTO ya limpio, el **service** aplica las reglas de negocio (cantidad positiva, símbolo no duplicado), genera el UUID, persiste vía repositorio y **registra el evento de auditoría**.
-5. **Repository** guarda la entidad en el array en memoria.
+5. Todo lo del punto 4 corre dentro de una **transacción de MySQL**: `SequelizeAssetRepository` inserta la fila y `MongoAuditRepository` guarda el evento en MongoDB. Si la auditoría falla, la transacción hace rollback (ver decisión 6.20).
 6. El controller responde `201` con el activo creado.
 7. Si en cualquier punto se lanza un error, el **middleware de errores** lo traduce al código HTTP correspondiente. El **request logger** registra el resultado.
 
@@ -541,7 +580,7 @@ Los services dependen de **interfaces** (`IAssetRepository`, `IAuditRepository`,
 
 Esto tiene dos consecuencias prácticas:
 
-- **Cambiar de infraestructura es barato.** Migrar de array en memoria a PostgreSQL es escribir una clase `PostgresAssetRepository implements IAssetRepository` y cambiar una línea en `container.ts`. Ni los services ni los controllers se enteran.
+- **Cambiar de infraestructura es barato.** La Parte 4 lo puso a prueba: pasar de arrays en memoria a MySQL y MongoDB fue escribir `SequelizeAssetRepository` y `MongoAuditRepository` y armarlos en `database/persistence.ts`. Los controllers, los pipelines y las reglas de negocio no cambiaron (el único cambio transversal fue pasar a `async`, ver 6.21).
 - **Los tests no necesitan infraestructura.** Se inyecta un `FakePriceProvider` y los tests corren sin red, sin base de datos y sin levantar Express.
 
 ---
@@ -622,7 +661,7 @@ Es inyectable, así que los tests la desactivan pasando TTL 0.
 
 ### 6.11 Los repositorios devuelven copias
 
-**Decisión:** `InMemoryAssetRepository` devuelve `{ ...asset }` en vez de la referencia interna.
+**Decisión:** `InMemoryAssetRepository` devuelve `{ ...asset }` en vez de la referencia interna. (Los repositorios de MySQL y MongoDB devuelven objetos nuevos por naturaleza: mapean cada fila o documento a la entidad.)
 
 **Por qué:** con un array en memoria, devolver la referencia significa que cualquier capa superior puede mutar el "almacenamiento" sin pasar por el repositorio — y sin generar auditoría. Devolver copias hace que el repositorio en memoria se comporte como se comportaría uno contra una base de datos real, y evita bugs que aparecerían recién al migrar. Hay un test que lo verifica.
 
@@ -682,6 +721,50 @@ Las monedas aceptadas son una lista cerrada en el esquema Zod (`SUPPORTED_CURREN
 
 Los cálculos (valor de la posición, umbrales de riesgo) se hacen con los valores sin redondear: redondear es lo **último** que pasa, justamente para no arrastrar error.
 
+### 6.20 Consistencia entre MySQL y MongoDB: la auditoría va dentro de la transacción
+
+**Decisión:** cada alta, modificación o baja corre dentro de una transacción de MySQL (`assetRepository.transaction(...)`), y el registro de auditoría en MongoDB se escribe **adentro** de esa transacción, antes del commit.
+
+**Por qué:** son dos bases distintas, así que no hay una transacción que abarque las dos. El orden elegido garantiza lo más importante para un sistema financiero: **no puede existir un movimiento sin su registro de auditoría**. Si MongoDB falla, la transacción de MySQL hace rollback y el cliente recibe `503`. Se verificó con docker-compose: con el contenedor de MongoDB detenido, `POST /api/assets` responde `503` y la tabla `assets` queda sin cambios.
+
+**Costo:** queda un caso borde al revés: que MongoDB guarde el evento y justo después falle el `COMMIT` de MySQL. Quedaría un evento de auditoría de una operación que no ocurrió. Es mucho menos grave (sobra un registro, no falta uno) y muy improbable. La solución completa sería un *outbox* transaccional, que se deja como mejora.
+
+### 6.21 Los repositorios pasaron a ser asíncronos
+
+**Decisión:** `IAssetRepository` e `IAuditRepository` devuelven `Promise`, y por lo tanto los services y controllers usan `async/await`.
+
+**Por qué:** cualquier base de datos real es asíncrona; un contrato sincrónico no se puede cumplir con Sequelize ni con Mongoose. Fue el único cambio que atravesó las capas, y es mecánico (`await`). La lógica de negocio, las validaciones y los pipelines quedaron iguales. Los repositorios en memoria también son `async`, así los tests usan exactamente el mismo contrato que producción.
+
+### 6.22 Migraciones versionadas con Umzug, aplicadas al arrancar
+
+**Decisión:** la tabla `assets` la crea una migración (`database/mysql/migrations/`), no `sequelize.sync()`. Se ejecutan con Umzug, que registra las aplicadas en la tabla `SequelizeMeta`. La API aplica las pendientes al iniciar, y además hay scripts `db:migrate*` para correrlas a mano.
+
+**Por qué:** `sync()` adivina el esquema a partir del modelo y en producción puede borrar o alterar columnas sin aviso. Una migración es un cambio de esquema **explícito, versionado y reversible** (`down`), igual en todos los entornos. Se eligió Umzug (la librería que usa `sequelize-cli` por debajo) porque permite escribir las migraciones en TypeScript y correrlas desde el código, sin un archivo de configuración aparte. Aplicarlas al arrancar hace que `docker compose up` deje todo listo sin pasos manuales.
+
+### 6.23 Montos en `DECIMAL`, no en `FLOAT`
+
+**Decisión:** `amount` es `DECIMAL(38,18)` y `purchase_price` es `DECIMAL(36,12)`.
+
+**Por qué:** `FLOAT`/`DOUBLE` guardan aproximaciones binarias (el clásico `0.1 + 0.2`), inaceptable para montos financieros. `DECIMAL` guarda el valor exacto. 18 decimales cubren la unidad mínima de ETH (wei) y 12 alcanzan para precios de monedas muy baratas. El driver devuelve los `DECIMAL` como string para no perder precisión; el repositorio los convierte a `number` al mapear a la entidad de dominio.
+
+### 6.24 La unicidad del símbolo también la garantiza la base
+
+**Decisión:** además del chequeo en el service, la tabla tiene un índice único sobre `symbol`. Si salta, el repositorio lo traduce a `ConflictError` (`409`).
+
+**Por qué:** el chequeo del service (`findBySymbol` y después `create`) tiene una carrera: dos altas simultáneas del mismo símbolo pueden pasar ambas el chequeo. El índice único es la garantía real; el chequeo del service queda para dar un mensaje claro (con el id de la posición existente) en el caso normal.
+
+### 6.25 Auditoría inmutable también en MongoDB
+
+**Decisión:** el esquema de Mongoose de `AuditLog` tiene *middlewares* que rechazan cualquier `update*`, `replace*` y `delete*`, y un `save` sobre un documento ya existente. El UUID del registro se usa como `_id`.
+
+**Por qué:** la interfaz del repositorio ya no expone update ni delete (6.2), pero con una base real alguien podría usar el modelo directamente. Bloquearlo en el modelo hace que la inmutabilidad no dependa de la disciplina de quien escribe el código. Usar el UUID como `_id` evita tener dos identificadores para el mismo registro.
+
+### 6.26 Persistencia intercambiable por configuración
+
+**Decisión:** `PERSISTENCE_DRIVER=memory` arma la app con los repositorios en memoria; `database` (el default) con MySQL y MongoDB. La decisión se toma en un solo lugar, `database/persistence.ts`.
+
+**Por qué:** permite levantar la API sin Docker para una prueba rápida y muestra en la práctica el beneficio de la inversión de dependencias: el resto de la app no sabe con qué motor está hablando. Con `database`, si alguna base no responde al arrancar, la app **no** abre el puerto: es preferible a una API que falla en cada request.
+
 ---
 
 ## 7. Testing
@@ -696,23 +779,28 @@ npm run test:coverage    # con reporte de cobertura
 ### Estado actual
 
 ```
-Test Suites: 8 passed, 8 total
-Tests:       113 passed, 113 total
+Test Suites: 11 passed, 11 total
+Tests:       144 passed, 144 total
 
-Cobertura global: 97.83% statements | 81.41% branches | 98.3% lines
+Cobertura global: 96.03% statements | 80.27% branches | 96.72% lines
   pipeline/         100%
-  services/        97.61%
+  services/         97.7%
   schemas/          100%
-  repositories/    94.44%
+  repositories/    92.07%
 ```
+
+Lo que no cubren los tests automáticos (las funciones de conexión a MySQL y MongoDB) se verificó de punta a punta con docker-compose: alta, modificación, baja e historial; los datos persisten entre reinicios; y con MongoDB detenido el alta responde `503` sin dejar la fila en MySQL.
 
 ### Qué se testea
 
 | Archivo | Cubre |
 |---------|-------|
-| `asset.service.test.ts` | CRUD, pipeline de ingesta integrado (normalización, conversión, duplicados con otro formato), reglas de negocio (saldos no negativos, símbolo único), generación de auditoría en cada operación, orden cronológico del historial, inmutabilidad de los registros, encapsulamiento del repositorio |
+| `asset.service.test.ts` | CRUD, rollback del cambio en activos si falla la auditoría, pipeline de ingesta integrado (normalización, conversión, duplicados con otro formato), reglas de negocio (saldos no negativos, símbolo único), generación de auditoría en cada operación, orden cronológico del historial, inmutabilidad de los registros, encapsulamiento del repositorio |
 | `market.service.test.ts` | Cálculo de valor actual, valor invertido, ganancia/pérdida y rentabilidad porcentual (incluyendo pérdidas y redondeo), comportamiento de la caché |
 | `price-provider.service.test.ts` | Contrato con la API externa: armado de la URL, parseo, símbolos no soportados, errores HTTP, caídas de red |
+| `sequelize-asset.repository.test.ts` | Contra **SQLite en memoria**: la migración (up y down), el mapeo fila ↔ entidad, el orden, el update parcial, el índice único (→ `409`) y el commit/rollback de transacciones |
+| `mongo-audit.repository.test.ts` | Que el modelo rechace updates y deletes, la validación de la acción, el mapeo documento ↔ entidad y la traducción de MongoDB caído a `503` |
+| `in-memory-repositories.test.ts` | Commit y rollback de la transacción en memoria |
 | `asset.schema.test.ts` | Validación Zod: estructura sin normalizar, monedas soportadas, campos faltantes, tipos incorrectos, valores negativos, campos desconocidos, normalización del `PUT` |
 | `exchange-rate-provider.service.test.ts` | Contrato con `/exchange_rates`: cálculo de la tasa cruzada, USD sin red, caché, monedas faltantes, errores HTTP y de red |
 | `pipeline.test.ts` | El runner: orden de ejecución, paso de datos entre filtros, filtros async, **fail-fast**, error original, inmutabilidad y logs de éxito/fallo |
@@ -732,12 +820,30 @@ Esta separación es posible gracias a la inversión de dependencias: la lógica 
 
 ## 8. Docker
 
-```bash
-# Construir la imagen
-docker build -t crypto-portfolio-api .
+### Docker Compose
 
-# Correr el contenedor
-docker run --env-file .env -p 3000:3000 crypto-portfolio-api
+```bash
+docker compose up --build        # API + MySQL + MongoDB
+docker compose up -d mysql mongo # solo las bases (para correr la API local)
+docker compose down              # detener (los datos quedan en volúmenes)
+docker compose down -v           # detener y BORRAR los datos
+```
+
+| Servicio | Imagen | Puerto en el host | Datos |
+|----------|--------|-------------------|-------|
+| `api` | build del `Dockerfile` | `3000` | — |
+| `mysql` | `mysql:8.4` | `3306` (`MYSQL_HOST_PORT`) | volumen `mysql-data` |
+| `mongo` | `mongo:7` | `27017` (`MONGO_HOST_PORT`) | volumen `mongo-data` |
+
+- **Arranque ordenado:** las dos bases tienen *healthcheck* y la API usa `depends_on: condition: service_healthy`, así no intenta conectarse antes de tiempo. El healthcheck de MySQL hace el ping por TCP: durante la inicialización MySQL levanta un servidor temporal sin red que respondería un ping por socket antes de estar listo.
+- **Cadenas de conexión:** fuera de Docker las bases están en `localhost`; dentro de la red de compose, en los hosts `mysql` y `mongo`. Por eso compose sobrescribe `MYSQL_URI` y `MONGO_URI` para el contenedor de la API, armándolas con las mismas credenciales del `.env`.
+- **Persistencia:** los datos viven en volúmenes con nombre y sobreviven a `docker compose down`.
+
+### Solo la imagen de la API
+
+```bash
+docker build -t crypto-portfolio-api .
+docker run --env-file .env -e PERSISTENCE_DRIVER=memory -p 3000:3000 crypto-portfolio-api
 ```
 
 ### Sobre el Dockerfile
@@ -745,6 +851,7 @@ docker run --env-file .env -p 3000:3000 crypto-portfolio-api
 - **Build multi-stage:** una etapa compila TypeScript (con las devDependencies) y otra corre la app solo con las dependencias de producción y el `dist/` ya compilado. La imagen final no incluye ni el compilador ni el código fuente.
 - **Las variables de entorno no se copian dentro de la imagen.** Se inyectan al correr el contenedor con `--env-file`. Meter un `.env` dentro de una imagen es un antipatrón: la imagen es inmutable y suele terminar en un registry, así que cualquier secreto quedaría ahí adentro para siempre.
 - **`.dockerignore`** excluye `node_modules`, `dist` y `logs` del contexto de build.
+- **`npm ci --ignore-scripts` en la etapa de build:** para compilar TypeScript no hacen falta binarios nativos, y `sqlite3` (solo para tests) no tiene binario precompilado para Alpine. La etapa final instala solo dependencias de producción.
 
 ---
 
@@ -752,8 +859,10 @@ docker run --env-file .env -p 3000:3000 crypto-portfolio-api
 
 ### Persistencia
 
-- **Base de datos real** (PostgreSQL + Prisma o TypeORM). La arquitectura ya está preparada: alcanza con implementar `IAssetRepository` e `IAuditRepository` contra la base y cambiar el `container.ts`. Hoy los datos se pierden al reiniciar.
-- **Migraciones versionadas** para poder evolucionar el esquema sin perder datos.
+- **Outbox transaccional** para la auditoría: guardar el evento en una tabla de MySQL dentro de la misma transacción y publicarlo a MongoDB después. Eliminaría el caso borde descripto en 6.20.
+- **Entidad `User`** (opcional en la consigna): cada activo con su propietario, una relación 1:N en Sequelize y la unicidad del símbolo pasaría a ser por usuario.
+- **Paginación en el historial de auditoría**, que en MongoDB puede crecer mucho.
+- **Tests de integración contra MySQL y MongoDB reales** (por ejemplo con Testcontainers) en el pipeline de CI.
 
 ### Seguridad
 
@@ -776,7 +885,7 @@ docker run --env-file .env -p 3000:3000 crypto-portfolio-api
 
 ### Calidad y operación
 
-- **Tests de integración** de la capa HTTP con `supertest`: hoy los tests cubren muy bien services, schemas y repositorios, pero las rutas, los middlewares y el manejo de errores se verificaron manualmente. Es la brecha de testing más relevante.
+- **Tests de integración** de la capa HTTP con `supertest`: hoy los tests cubren muy bien services, schemas, pipelines y repositorios, pero las rutas, los middlewares y el manejo de errores se verificaron manualmente. Es la brecha de testing más relevante.
 - **CI/CD** (GitHub Actions) corriendo `typecheck`, `test` y `build` en cada push, y bloqueando el merge si algo falla.
 - **ESLint + Prettier** con hooks de pre-commit para unificar estilo.
 - **Documentación OpenAPI/Swagger** generada desde los esquemas Zod (con `zod-to-openapi`), sirviendo una UI interactiva en `/api-docs`.
